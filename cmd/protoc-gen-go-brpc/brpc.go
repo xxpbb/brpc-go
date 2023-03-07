@@ -31,7 +31,6 @@ import (
 const (
 	contextPackage = protogen.GoImportPath("context")
 	brpcPackage    = protogen.GoImportPath("github.com/xxpbb/brpc-go")
-	statusPackage  = protogen.GoImportPath("github.com/xxpbb/brpc-go/status")
 )
 
 type serviceGenerateHelperInterface interface {
@@ -39,7 +38,6 @@ type serviceGenerateHelperInterface interface {
 	genFullMethods(g *protogen.GeneratedFile, service *protogen.Service)
 	generateClientStruct(g *protogen.GeneratedFile, clientName string)
 	generateNewClientDefinitions(g *protogen.GeneratedFile, service *protogen.Service, clientName string)
-	generateUnimplementedServerType(gen *protogen.Plugin, file *protogen.File, g *protogen.GeneratedFile, service *protogen.Service)
 	generateServerFunctions(gen *protogen.Plugin, file *protogen.File, g *protogen.GeneratedFile, service *protogen.Service, serverType string, serviceDescVar string)
 	formatHandlerFuncName(service *protogen.Service, hname string) string
 }
@@ -70,27 +68,6 @@ func (serviceGenerateHelper) generateClientStruct(g *protogen.GeneratedFile, cli
 
 func (serviceGenerateHelper) generateNewClientDefinitions(g *protogen.GeneratedFile, service *protogen.Service, clientName string) {
 	g.P("return &", unexport(clientName), "{cc}")
-}
-
-func (serviceGenerateHelper) generateUnimplementedServerType(gen *protogen.Plugin, file *protogen.File, g *protogen.GeneratedFile, service *protogen.Service) {
-	serverType := service.GoName + "Server"
-	mustOrShould := "must"
-	// Server Unimplemented struct for forward compatibility.
-	g.P("// Unimplemented", serverType, " ", mustOrShould, " be embedded to have forward compatible implementations.")
-	g.P("type Unimplemented", serverType, " struct {")
-	g.P("}")
-	g.P()
-	for _, method := range service.Methods {
-		nilArg := ""
-		if !method.Desc.IsStreamingClient() && !method.Desc.IsStreamingServer() {
-			nilArg = "nil,"
-		}
-		g.P("func (Unimplemented", serverType, ") ", serverSignature(g, method), "{")
-		g.P("return ", nilArg, statusPackage.Ident("Errorf"), "(", -1, `, "method `, method.GoName, ` not implemented")`)
-		g.P("}")
-	}
-	g.P("func (Unimplemented", serverType, ") mustEmbedUnimplemented", serverType, "() {}")
-	g.P()
 }
 
 func (serviceGenerateHelper) generateServerFunctions(gen *protogen.Plugin, file *protogen.File, g *protogen.GeneratedFile, service *protogen.Service, serverType string, serviceDescVar string) {
@@ -226,13 +203,9 @@ func genService(gen *protogen.Plugin, file *protogen.File, g *protogen.Generated
 		}
 	}
 
-	mustOrShould := "must"
-
 	// Server interface.
 	serverType := service.GoName + "Server"
 	g.P("// ", serverType, " is the server API for ", service.GoName, " service.")
-	g.P("// All implementations ", mustOrShould, " embed Unimplemented", serverType)
-	g.P("// for forward compatibility")
 	if service.Desc.Options().(*descriptorpb.ServiceOptions).GetDeprecated() {
 		g.P("//")
 		g.P(deprecationComment)
@@ -247,20 +220,8 @@ func genService(gen *protogen.Plugin, file *protogen.File, g *protogen.Generated
 		g.P(method.Comments.Leading,
 			serverSignature(g, method))
 	}
-	g.P("mustEmbedUnimplemented", serverType, "()")
 	g.P("}")
 	g.P()
-
-	// Server Unimplemented struct for forward compatibility.
-	helper.generateUnimplementedServerType(gen, file, g, service)
-
-	// Unsafe Server interface to opt-out of forward compatibility.
-	g.P("// Unsafe", serverType, " may be embedded to opt out of forward compatibility for this service.")
-	g.P("// Use of this interface is not recommended, as added methods to ", serverType, " will")
-	g.P("// result in compilation errors.")
-	g.P("type Unsafe", serverType, " interface {")
-	g.P("mustEmbedUnimplemented", serverType, "()")
-	g.P("}")
 
 	// Server registration.
 	if service.Desc.Options().(*descriptorpb.ServiceOptions).GetDeprecated() {
