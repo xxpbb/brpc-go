@@ -273,7 +273,9 @@ func (cc *ClientConn) recvMsg(ctx context.Context, id int64, reply proto.Message
 				return err
 			}
 
-			*attachment = m.attachment
+			if m.meta.GetAttachmentSize() > 0 && attachment != nil {
+				*attachment = m.attachment
+			}
 
 			return nil
 		}
